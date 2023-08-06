@@ -34,11 +34,9 @@ plotter.add_mesh(grid, show_edges=True)
 plotter.view_xy()
 plotter.add_title('Finite Element Mesh', font='courier', color='w',
                    font_size=10)
+plotter.background_color = "black"
 plotter.show()
 plotter.close()
-if iAmRoot:
-    for item in dir(plotter):
-        print(item)
 
 # Define the finite element space V_h as the space of piecewise linear functions on the elements of the mesh.
 degree = 1
@@ -141,8 +139,6 @@ H_0.assemble()
 
 H_0udir = dl.fem.Function(Vh)
 diff_grad = dl.fem.Function(Vh)
-#H_0udir =  dl.la.create_petsc_vector(Vh.dofmap.index_map, Vh.dofmap.index_map_bs)
-#diff_grad = dl.la.create_petsc_vector(Vh.dofmap.index_map, Vh.dofmap.index_map_bs)
 
 
 H_0.mult(u_dir, H_0udir.vector)
@@ -167,7 +163,6 @@ for i, eps in enumerate(epss):
     diff_grad.vector.axpy(-1, H_0udir.vector)
     diff_grad.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
     fdHessian_residuals[i] = diff_grad.vector.norm(2) 
-    #print(max(np.abs(diff_grad.vector.array)), rank)
 
 
 if iAmRoot:
@@ -251,6 +246,7 @@ plotter = pv.Plotter(window_size=window_size)
 plotter.add_mesh(grid, show_edges=True, show_scalar_bar=True, scalars="u")
 plotter.view_xy()
 plotter.add_title('Optimizer', font='courier', color='w', font_size=10)
+plotter.background_color = "pink"
 plotter.show()
-
+plotter.close()
 
