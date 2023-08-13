@@ -248,5 +248,39 @@ plotter.view_xy()
 plotter.add_title('Optimizer', font='courier', color='w', font_size=10)
 plotter.background_color = "pink"
 plotter.show()
-plotter.close()
+#plotter.close()
+
+
+
+uh.vector.zeroEntries()
+optProblem = dl.fem.petsc.NonlinearProblem(gradform, uh, bcs=bcs, J=Hform)
+solver = dl.nls.petsc.NewtonSolver(comm, optProblem)
+solver.convergence_criterion = "incremental"
+solver.rtol = rgradtol
+
+# We can customize the linear solver used inside the NewtonSolver by
+# modifying the PETSc options
+ksp = solver.krylov_solver
+opts = PETSc.Options()
+option_prefix = ksp.getOptionsPrefix()
+opts["ksp_type"] = "cg"
+opts["pc_type"]  = "gamg"
+ksp.setFromOptions()
+NewtonIts, converged = solver.solve(uh)
+assert(converged)
+
+final_g = dl.fem.petsc.assemble_vector(grad)
+dl.fem.petsc.set_bc(final_g, bcs)
+
+print("Number of Newton iterations = {0:d}".format(NewtonIts))
+print("Norm of the gradient at minimizer estimate = {0:1.2e}".format(final_g.norm(2)))
+print("Value of the energy functional at minimizer estimate = {0:1.2e}".format(dl.fem.assemble_scalar(J) ))
+
+
+grid.point_data["u (PETSc solver)"] = uh.x.array.real
+plotter = pv.Plotter(window_size=window_size)
+plotter.add_mesh(grid, show_edges=True, show_scalar_bar=True, scalars="u (PETSc solver)")
+plotter.view_xy()
+plotter.add_title('Optimizer (PETSc solver)', font='courier', color='w', font_size=10)
+plotter.show()
 
