@@ -141,8 +141,8 @@ pv.set_jupyter_backend('static')
 # create mesh and define function spaces
 comm = MPI.COMM_WORLD
 
-nx = 8
-ny = 8
+nx = 32
+ny = nx
 mesh = dl.mesh.create_unit_square(comm, nx, ny)
 
 cells, types, coords = dl.plot.create_vtk_mesh(mesh, mesh.topology.dim)
@@ -258,7 +258,7 @@ ud.vector.zeroEntries()
 ud.vector.axpy(1.0, utrue.vector)
 
 noise_level = 0.01 # 1 / SNR
-MAX = ud.vector.norm(2) # TO DO! Change to L^infinity norm
+MAX = ud.vector.norm(PETSc.NormType.NORM_INFINITY)
 
 noise =  dl.la.create_petsc_vector(Vhu.dofmap.index_map, Vhu.dofmap.index_map_bs)
 noise.setValuesLocal(range(noise.getLocalSize()), MAX * noise_level * np.random.randn(noise.getLocalSize()))
@@ -270,7 +270,7 @@ ud.vector.axpy(1.0, noise)
 # In[ ]:
 
 # Regularization parameter
-gamma = 1e-9
+gamma = 1e-8
 
 # Define cost function
 def cost(u, ud, m, gamma):
@@ -297,7 +297,18 @@ gradRvarf = gamma * ufl.inner(ufl.grad(m), ufl.grad(m_test)) * ufl.dx
 Mvarf = m_trial * m_test * ufl.dx
 M = dl.fem.petsc.assemble_matrix(dl.fem.form(Mvarf))
 M.assemble()
-#M = dl.assemble(Mvarf)
+opts = PETSc.Options()
+opts["ksp_type"] = "preonly"
+opts["pc_type"] = "lu"
+
+
+# Create PETSc LU solver
+Msolver = PETSc.KSP().create(mesh.comm)
+Msolver.setFromOptions()
+
+# Set matrix operator
+Msolver.setOperators(M)
+
 
 m0 = dl.fem.Function(Vhm)
 m0.interpolate(lambda x: np.log(4.0) * np.ones(len(x[0])))
@@ -322,7 +333,7 @@ adj_problem.solve()
 
 # evaluate the  gradient
 grad0 = dl.fem.petsc.assemble_vector(dl.fem.form(CTvarf + gradRvarf))
-print(grad0[:])
+
 
 # Define an arbitrary direction m_hat to perform the check 
 mhat = dl.la.create_petsc_vector(Vhm.dofmap.index_map, Vhm.dofmap.index_map_bs)
@@ -336,7 +347,6 @@ for i in range(n_eps):
     m.vector.zeroEntries()
     m.vector.axpy(1.0, m0.vector)
     m.vector.axpy(eps[i], mhat)
-    state_problem = dl.fem.petsc.LinearProblem(a_state, L_state, u=u, bcs=bc_state, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
     state_problem.solve()
     
     cplus, _, _ = cost(u, ud, m, gamma)
@@ -362,7 +372,6 @@ m.vector.zeroEntries()
 m.vector.axpy(1.0, m0.vector)
 
 # solve state equation
-state_problem = dl.fem.petsc.LinearProblem(a_state, L_state, u=u, bcs=bc_state, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
 state_problem.solve()
 
 
@@ -393,8 +402,8 @@ state_problem.solve()
 
 
 # define parameters for the optimization
-tol = 1e-4
-maxiter = 100
+tol = 1e-6
+maxiter = 1000
 print_any = 10
 c_armijo = 1e-5
 
@@ -407,7 +416,6 @@ g = dl.la.create_petsc_vector(Vhm.dofmap.index_map, Vhm.dofmap.index_map_bs)
 
 m_prev = dl.fem.Function(Vhm)
 
-#exit()
 
 
 print( "Nit  cost          misfit        reg         ||grad||       alpha  N backtrack" )
@@ -415,28 +423,14 @@ print( "Nit  cost          misfit        reg         ||grad||       alpha  N bac
 while iter <  maxiter and not converged:
 
     # solve the adoint problem
-    adj_problem = dl.fem.petsc.LinearProblem(a_adj, L_adj, u=p, bcs=bc_adj, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
     adj_problem.solve()
 
     # evaluate the  gradient
     MG = dl.fem.petsc.assemble_vector(dl.fem.form(CTvarf + gradRvarf))
     # solve M g = MG
-    opts = PETSc.Options()
-    opts["ksp_type"] = "cg"
-    opts["pc_type"] = "gamg"
-    opts["ksp_rtol"] = 1.e-12
 
-    # Create PETSc Krylov solver and turn convergence monitoring on
-    Msolver = PETSc.KSP().create(mesh.comm)
-    Msolver.setFromOptions()
-
-    # Set matrix operator
-    Msolver.setOperators(M)
     Msolver.solve(MG, g)
 
-
-
-    #g.axpy(1.0, MG)
 
 
 
@@ -459,11 +453,8 @@ while iter <  maxiter and not converged:
         m.vector.axpy(-alpha, g )
 
         # solve the state/forward problem
-        state_problem = dl.fem.petsc.LinearProblem(a_state, L_state, u=u, bcs=bc_state, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
         state_problem.solve()
-        #state_A, state_b = dl.assemble_system(a_state, L_state, bc_state)
-        #dl.solve(state_A, u.vector(), state_b)
-
+        
         # evaluate cost
         [cost_new, misfit_new, reg_new] = cost(u, ud, m, gamma)
 
@@ -489,9 +480,6 @@ while iter <  maxiter and not converged:
             (iter, sp, cost_new, sp, misfit_new, sp, reg_new, sp, \
             gradnorm, sp, alpha, sp, it_backtrack) )
 
-    #if (iter % plot_any)== 0 :
-    #    nb.multi1_plot([m,u,p], ["m","u","p"], same_colorbar=False)
-    #    plt.show()
     
     # check for convergence
     if gradnorm < tol*gradnorm0 and iter > 0:
