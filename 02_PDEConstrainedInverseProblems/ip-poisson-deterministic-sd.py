@@ -159,10 +159,16 @@ plotter.show()
 
 
 
-degree_u = 1
+degree_u = 2
 degree_m = 1
 Vhu = dl.fem.FunctionSpace(mesh, ('CG', degree_u))
 Vhm = dl.fem.FunctionSpace(mesh, ('CG', degree_m))
+
+cellsu, typesu, coordsu = dl.plot.create_vtk_mesh(Vhu)
+# Create a pyvista mesh and attach the values of u
+gridu = pv.UnstructuredGrid(cellsu, typesu, coordsu)
+
+
 
 mtrue = dl.fem.Function(Vhm)
 
@@ -201,7 +207,7 @@ u_trial, m_trial, p_trial = ufl.TrialFunction(Vhu), ufl.TrialFunction(Vhm), ufl.
 u_test,  m_test , p_test  = ufl.TestFunction(Vhu),  ufl.TestFunction(Vhm),  ufl.TestFunction(Vhu)
 
 f = dl.fem.Constant(mesh, PETSc.ScalarType(1.0))
-u_bc = PETSc.ScalarType(0.)
+u_bc  = PETSc.ScalarType(0.)
 u_bc0 = PETSc.ScalarType(0.)
 
 
@@ -251,6 +257,15 @@ utrue = dl.fem.Function(Vhu)
 problem = dl.fem.petsc.LinearProblem(a_expr, L_expr, u=utrue, bcs=bc_state, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
 problem.solve()
 
+gridu.point_data["utrue"] = utrue.x.array
+gridu.set_active_scalars("utrue")
+
+plotteru = pv.Plotter(window_size=window_size)
+plotteru.add_mesh(gridu, show_edges=True, show_scalar_bar=True, scalars="utrue")
+plotteru.view_xy()
+plotteru.add_title('True state', font='courier', color='w', font_size=10)
+plotteru.show()
+
 # corrupt true solution with random noise
 # ud = utrue + ||utrue||/SNR * random.normal
 ud = dl.fem.Function(Vhu)
@@ -266,11 +281,18 @@ dl.fem.petsc.set_bc(noise, bc_adj)
 
 ud.vector.axpy(1.0, noise)
 
+gridu.point_data["data"] = ud.x.array
+gridu.set_active_scalars("data")
+plotteru = pv.Plotter(window_size=window_size)
+plotteru.add_mesh(gridu, show_edges=True, show_scalar_bar=True, scalars="data")
+plotteru.view_xy()
+plotteru.add_title('Noisy data', font='courier', color='w', font_size=10)
+plotteru.show()
 
-# In[ ]:
+
 
 # Regularization parameter
-gamma = 1e-8
+gamma = 1.e-9
 
 # Define cost function
 def cost(u, ud, m, gamma):
@@ -408,7 +430,7 @@ print_any = 10
 c_armijo = 1e-5
 
 # initialize iter counters
-iter = 0
+it = 0
 converged = False
 
 # initializations
@@ -420,7 +442,7 @@ m_prev = dl.fem.Function(Vhm)
 
 print( "Nit  cost          misfit        reg         ||grad||       alpha  N backtrack" )
 
-while iter <  maxiter and not converged:
+while it <  maxiter and not converged:
 
     # solve the adoint problem
     adj_problem.solve()
@@ -436,10 +458,9 @@ while iter <  maxiter and not converged:
 
     # calculate the norm of the gradient
     grad_norm2 = g.dot(MG)
-    gradnorm = np.sqrt(grad_norm2)
-    print(gradnorm)
+    gradnorm   = np.sqrt(grad_norm2)
     # ---------- break point ----------
-    if iter == 0:
+    if it == 0:
         gradnorm0 = gradnorm
 
     # linesearch
@@ -475,18 +496,18 @@ while iter <  maxiter and not converged:
         break
 
     sp = ""
-    if (iter % print_any)== 0 :
+    if (it % print_any)== 0 :
         print( "%3d %1s %8.5e %1s %8.5e %1s %8.5e %1s %8.5e %1s %8.5e %1s %3d" % \
-            (iter, sp, cost_new, sp, misfit_new, sp, reg_new, sp, \
+            (it, sp, cost_new, sp, misfit_new, sp, reg_new, sp, \
             gradnorm, sp, alpha, sp, it_backtrack) )
 
     
     # check for convergence
-    if gradnorm < tol*gradnorm0 and iter > 0:
+    if gradnorm < tol * gradnorm0 and it > 0:
         converged = True
-        print ("Steepest descent converged in ",iter,"  iterations")
+        print ("Steepest descent converged in ",it,"  iterations")
         
-    iter += 1
+    it += 1
     
 if not converged:
     print ( "Steepest descent did not converge in ", maxiter, " iterations")
